@@ -371,6 +371,18 @@ void libtls_init(void);
  * @param is_server			TRUE to act as server, FALSE for client
  * @param server			server identity
  * @param peer				peer identity, NULL for no client authentication
+ * @param local_auth		config with certificates to use for our own
+ *							authentication (as server or client), or NULL.
+ *							Only X.509 certificates added as
+ *							AUTH_RULE_SUBJECT_CERT are used, all other rules
+ *							are ignored. For each key type that is tried, one
+ *							of these certificates with a private key of that
+ *							type is used, if there is none, a certificate is
+ *							looked up via our identity. If NULL or if there
+ *							are no such certificates, certificates are only
+ *							looked up via our identity. As client, the
+ *							certificates are not used if peer is NULL. The
+ *							config is not modified and not adopted.
  * @param purpose			purpose this TLS stack instance is used for
  * @param application		higher layer application or NULL if none
  * @param cache				session cache to use, or NULL
@@ -378,8 +390,8 @@ void libtls_init(void);
  * @return					TLS stack
  */
 tls_t *tls_create(bool is_server, identification_t *server,
-				  identification_t *peer, tls_purpose_t purpose,
-				  tls_application_t *application, tls_cache_t *cache,
-				  tls_flag_t flags);
+				  identification_t *peer, auth_cfg_t *local_auth,
+				  tls_purpose_t purpose, tls_application_t *application,
+				  tls_cache_t *cache, tls_flag_t flags);
 
 #endif /** TLS_H_ @}*/

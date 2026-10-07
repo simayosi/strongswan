@@ -475,6 +475,12 @@ typedef struct {
 	chunk_t data;
 	int fd;
 	bool cauth;
+	/** own identity, addr if NULL */
+	char *id;
+	/** identity of the peer, addr if NULL */
+	char *peer;
+	/** certificates for own authentication, or NULL */
+	auth_cfg_t *local_auth;
 } echo_server_config_t;
 
 /**
@@ -491,6 +497,7 @@ START_TEARDOWN(teardown_creds)
 	if (server_config)
 	{
 		shutdown(server_config->fd, SHUT_RDWR);
+		DESTROY_IF(server_config->local_auth);
 		free(server_config);
 		server_config = NULL;
 	}
@@ -500,6 +507,13 @@ END_TEARDOWN
 static void close_fd_ptr(void *fd)
 {
 	close(*(int*)fd);
+}
+
+static void destroy_id_ptr(void *id)
+{
+	identification_t *this = *(identification_t**)id;
+
+	DESTROY_IF(this);
 }
 
 /**
@@ -514,13 +528,14 @@ static job_requeue_t serve_echo(echo_server_config_t *config)
 	char buf[128];
 	bool oldstate;
 
-	server = identification_create_from_string(config->addr);
+	server = identification_create_from_string(config->id ?: config->addr);
 	if (config->cauth)
 	{
-		client = server;
+		client = identification_create_from_string(config->peer ?: config->addr);
 	}
 	sfd = config->fd;
 	thread_cleanup_push((thread_cleanup_t)server->destroy, server);
+	thread_cleanup_push(destroy_id_ptr, &client);
 	thread_cleanup_push(close_fd_ptr, &sfd);
 	while (TRUE)
 	{
@@ -532,8 +547,8 @@ static job_requeue_t serve_echo(echo_server_config_t *config)
 			break;
 		}
 
-		tls = tls_socket_create(TRUE, server, client, cfd, NULL,
-								TLS_SUPPORTED_MIN, config->version,
+		tls = tls_socket_create(TRUE, server, client, config->local_auth, cfd,
+								NULL, TLS_SUPPORTED_MIN, config->version,
 								TLS_FLAG_ENCRYPTION_OPTIONAL);
 		ck_assert(tls != NULL);
 
@@ -556,6 +571,7 @@ static job_requeue_t serve_echo(echo_server_config_t *config)
 		tls->destroy(tls);
 		close(cfd);
 	}
+	thread_cleanup_pop(TRUE);
 	thread_cleanup_pop(TRUE);
 	thread_cleanup_pop(TRUE);
 
@@ -601,18 +617,18 @@ static void run_echo_client(echo_server_config_t *config)
 	char buf[128];
 
 	host = host_create_from_string(config->addr, config->port);
-	server = identification_create_from_string(config->addr);
+	server = identification_create_from_string(config->peer ?: config->addr);
 	if (config->cauth)
 	{
-		client = server;
+		client = identification_create_from_string(config->id ?: config->addr);
 	}
 
 	fd = socket(AF_INET, SOCK_STREAM, 0);
 	ck_assert(fd != -1);
 	ck_assert(connect(fd, host->get_sockaddr(host),
 					  *host->get_sockaddr_len(host)) != -1);
-	tls = tls_socket_create(FALSE, server, client, fd, NULL,
-							TLS_SUPPORTED_MIN, config->version,
+	tls = tls_socket_create(FALSE, server, client, config->local_auth, fd,
+							NULL, TLS_SUPPORTED_MIN, config->version,
 							TLS_FLAG_ENCRYPTION_OPTIONAL);
 	ck_assert(tls != NULL);
 
@@ -643,6 +659,7 @@ static void run_echo_client(echo_server_config_t *config)
 	close(fd);
 	host->destroy(host);
 	server->destroy(server);
+	DESTROY_IF(client);
 }
 
 /**
@@ -820,6 +837,118 @@ static void test_tls_client(tls_version_t version, uint16_t port, bool cauth,
 	free(client);
 }
 
+/**
+ * Identity not contained in any of the certificates
+ */
+#define UNKNOWN_ID "127.0.0.2"
+
+/**
+ * Add an X.509 certificate for own authentication to the given config
+ */
+static void add_local_cert(auth_cfg_t *auth, chunk_t data)
+{
+	certificate_t *cert;
+
+	cert = lib->creds->create(lib->creds, CRED_CERTIFICATE, CERT_X509,
+							  BUILD_BLOB, data, BUILD_END);
+	ck_assert(cert);
+	auth->add(auth, AUTH_RULE_SUBJECT_CERT, cert);
+}
+
+/**
+ * TLS test wrapper function for certificates passed to the server or client,
+ * which uses an identity that is not contained in any certificate
+ */
+static void test_tls_local_auth(tls_version_t version, uint16_t port,
+								bool server, u_int i)
+{
+	echo_server_config_t *client;
+	tls_cipher_suite_t *suites;
+	char suite[128];
+	int count;
+
+	server_config = create_config(version, port, !server);
+	client = create_config(version, port, !server);
+	if (server)
+	{
+		server_config->id = UNKNOWN_ID;
+		server_config->local_auth = auth_cfg_create();
+		add_local_cert(server_config->local_auth, chunk_from_thing(rsa_crt));
+		add_local_cert(server_config->local_auth,
+					   chunk_from_thing(ecdsa256_crt));
+		client->peer = "%any";
+	}
+	else
+	{
+		client->id = UNKNOWN_ID;
+		client->local_auth = auth_cfg_create();
+		add_local_cert(client->local_auth, chunk_from_thing(rsa_crt));
+		server_config->peer = "%any";
+	}
+
+	start_echo_server(server_config);
+
+	count = tls_crypto_get_supported_suites(TRUE, version, &suites);
+	ck_assert(i < count);
+	snprintf(suite, sizeof(suite), "%N", tls_cipher_suite_names, suites[i]);
+	lib->settings->set_str(lib->settings, "%s.tls.suites", suite, lib->ns);
+
+	run_echo_client(client);
+
+	DESTROY_IF(client->local_auth);
+	free(client);
+	free(suites);
+}
+
+START_TEST(test_private_key_local_auth)
+{
+	enumerator_t *enumerator, *rules;
+	auth_cfg_t *certs, *auth;
+	certificate_t *cert;
+	private_key_t *key;
+	identification_t *id;
+	bio_writer_t *writer;
+	auth_rule_t rule;
+	int count = 0;
+
+	writer = bio_writer_create(4);
+	writer->write_uint16(writer, TLS_SIG_RSA_PKCS1_SHA256);
+	writer->write_uint16(writer, TLS_SIG_ECDSA_SHA256);
+	id = identification_create_from_string(UNKNOWN_ID);
+
+	enumerator = tls_create_private_key_enumerator(TLS_1_2, TLS_1_2,
+								writer->get_buf(writer), id, NULL);
+	ck_assert(enumerator);
+	ck_assert(!enumerator->enumerate(enumerator, &key, &auth));
+	enumerator->destroy(enumerator);
+
+	certs = auth_cfg_create();
+	add_local_cert(certs, chunk_from_thing(rsa_crt));
+	cert = certs->get(certs, AUTH_RULE_SUBJECT_CERT);
+	enumerator = tls_create_private_key_enumerator(TLS_1_2, TLS_1_2,
+								writer->get_buf(writer), id, certs);
+	ck_assert(enumerator);
+	ck_assert(enumerator->enumerate(enumerator, &key, &auth));
+	ck_assert_int_eq(key->get_type(key), KEY_RSA);
+	ck_assert(cert->equals(cert, auth->get(auth, AUTH_RULE_SUBJECT_CERT)));
+	ck_assert(!enumerator->enumerate(enumerator, &key, &auth));
+	enumerator->destroy(enumerator);
+
+	/* the passed config is not modified */
+	rules = certs->create_enumerator(certs);
+	while (rules->enumerate(rules, &rule, NULL))
+	{
+		count++;
+	}
+	rules->destroy(rules);
+	ck_assert_int_eq(count, 1);
+
+	certs->destroy(certs);
+	id->destroy(id);
+	writer->destroy(writer);
+}
+END_TEST
+
 START_TEST(test_tls_12_server)
 {
 	test_tls_server(TLS_1_2, 5661, FALSE, _i);
@@ -913,6 +1042,54 @@ END_TEST
 START_TEST(test_tls10_mutual)
 {
 	test_tls(TLS_1_0, 5676, TRUE, _i);
+}
+END_TEST
+
+START_TEST(test_tls13_local_server)
+{
+	test_tls_local_auth(TLS_1_3, 5677, TRUE, _i);
+}
+END_TEST
+
+START_TEST(test_tls13_local_client)
+{
+	test_tls_local_auth(TLS_1_3, 5678, FALSE, _i);
+}
+END_TEST
+
+START_TEST(test_tls12_local_server)
+{
+	test_tls_local_auth(TLS_1_2, 5679, TRUE, _i);
+}
+END_TEST
+
+START_TEST(test_tls12_local_client)
+{
+	test_tls_local_auth(TLS_1_2, 5680, FALSE, _i);
+}
+END_TEST
+
+START_TEST(test_tls11_local_server)
+{
+	test_tls_local_auth(TLS_1_1, 5681, TRUE, _i);
+}
+END_TEST
+
+START_TEST(test_tls11_local_client)
+{
+	test_tls_local_auth(TLS_1_1, 5682, FALSE, _i);
+}
+END_TEST
+
+START_TEST(test_tls10_local_server)
+{
+	test_tls_local_auth(TLS_1_0, 5683, TRUE, _i);
+}
+END_TEST
+
+START_TEST(test_tls10_local_client)
+{
+	test_tls_local_auth(TLS_1_0, 5684, FALSE, _i);
 }
 END_TEST
 
@@ -1013,6 +1190,51 @@ Suite *socket_suite_create()
 	tc = tcase_create("TLS 1.0/mutl");
 	tcase_add_checked_fixture(tc, setup_all_creds, teardown_creds);
 	add_tls_test(test_tls10_mutual, TLS_1_0);
+	suite_add_tcase(s, tc);
+
+	tc = tcase_create("private key enumerator/local certs");
+	tcase_add_checked_fixture(tc, setup_all_creds, teardown_creds);
+	tcase_add_test(tc, test_private_key_local_auth);
+	suite_add_tcase(s, tc);
+
+	tc = tcase_create("TLS 1.3/local server certs");
+	tcase_add_checked_fixture(tc, setup_all_creds, teardown_creds);
+	add_tls_test(test_tls13_local_server, TLS_1_3);
+	suite_add_tcase(s, tc);
+
+	tc = tcase_create("TLS 1.3/local client certs");
+	tcase_add_checked_fixture(tc, setup_all_creds, teardown_creds);
+	add_tls_test(test_tls13_local_client, TLS_1_3);
+	suite_add_tcase(s, tc);
+
+	tc = tcase_create("TLS 1.2/local server certs");
+	tcase_add_checked_fixture(tc, setup_all_creds, teardown_creds);
+	add_tls_test(test_tls12_local_server, TLS_1_2);
+	suite_add_tcase(s, tc);
+
+	tc = tcase_create("TLS 1.2/local client certs");
+	tcase_add_checked_fixture(tc, setup_all_creds, teardown_creds);
+	add_tls_test(test_tls12_local_client, TLS_1_2);
+	suite_add_tcase(s, tc);
+
+	tc = tcase_create("TLS 1.1/local server certs");
+	tcase_add_checked_fixture(tc, setup_all_creds, teardown_creds);
+	add_tls_test(test_tls11_local_server, TLS_1_1);
+	suite_add_tcase(s, tc);
+
+	tc = tcase_create("TLS 1.1/local client certs");
+	tcase_add_checked_fixture(tc, setup_all_creds, teardown_creds);
+	add_tls_test(test_tls11_local_client, TLS_1_1);
+	suite_add_tcase(s, tc);
+
+	tc = tcase_create("TLS 1.0/local server certs");
+	tcase_add_checked_fixture(tc, setup_all_creds, teardown_creds);
+	add_tls_test(test_tls10_local_server, TLS_1_0);
+	suite_add_tcase(s, tc);
+
+	tc = tcase_create("TLS 1.0/local client certs");
+	tcase_add_checked_fixture(tc, setup_all_creds, teardown_creds);
+	add_tls_test(test_tls10_local_client, TLS_1_0);
 	suite_add_tcase(s, tc);
 
 	return s;

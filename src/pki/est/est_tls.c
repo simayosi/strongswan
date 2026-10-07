@@ -398,7 +398,7 @@ static bool est_tls_init(private_est_tls_t *this, char *uri, char *label,
 	server_id = identification_create_from_string(host_str);
 
 	/* open TLS socket */
-	this->tls = tls_socket_create(FALSE, server_id, client_id, this->fd,
+	this->tls = tls_socket_create(FALSE, server_id, client_id, NULL, this->fd,
 								  NULL, TLS_UNSPEC, TLS_UNSPEC, 0);
 	server_id->destroy(server_id);
 	if (!this->tls)

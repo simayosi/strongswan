@@ -89,6 +89,11 @@ struct private_tls_server_t {
 	identification_t *peer;
 
 	/**
+	 * Local X.509 certificates to prefer, NULL if none (not owned)
+	 */
+	auth_cfg_t *local_auth;
+
+	/**
 	 * State we are in
 	 */
 	server_state_t state;
@@ -220,7 +225,8 @@ static bool select_suite_and_key(private_tls_server_t *this,
 	version_min = this->tls->get_version_min(this->tls);
 	version_max = this->tls->get_version_max(this->tls);
 	enumerator = tls_create_private_key_enumerator(version_min, version_max,
-												   this->hashsig, this->server);
+												   this->hashsig, this->server,
+												   this->local_auth);
 	if (!enumerator)
 	{
 		DBG1(DBG_TLS, "no common signature algorithms found");
@@ -228,8 +234,16 @@ static bool select_suite_and_key(private_tls_server_t *this,
 	}
 	if (!enumerator->enumerate(enumerator, &key, &auth))
 	{
-		DBG1(DBG_TLS, "no usable TLS server certificate found for '%Y'",
-			 this->server);
+		if (this->local_auth)
+		{
+			DBG1(DBG_TLS, "no usable TLS server certificate found among the "
+				 "configured certificates or for '%Y'", this->server);
+		}
+		else
+		{
+			DBG1(DBG_TLS, "no usable TLS server certificate found for '%Y'",
+				 this->server);
+		}
 		enumerator->destroy(enumerator);
 		return FALSE;
 	}
@@ -1869,7 +1883,8 @@ METHOD(tls_handshake_t, destroy, void,
  */
 tls_server_t *tls_server_create(tls_t *tls,
 						tls_crypto_t *crypto, tls_alert_t *alert,
-						identification_t *server, identification_t *peer)
+						identification_t *server, identification_t *peer,
+						auth_cfg_t *local_auth)
 {
 	private_tls_server_t *this;
 
@@ -1892,6 +1907,7 @@ tls_server_t *tls_server_create(tls_t *tls,
 		.alert = alert,
 		.server = server->clone(server),
 		.peer = peer ? peer->clone(peer) : NULL,
+		.local_auth = local_auth,
 		.state = STATE_INIT,
 		.peer_auth = auth_cfg_create(),
 		.server_auth = auth_cfg_create(),

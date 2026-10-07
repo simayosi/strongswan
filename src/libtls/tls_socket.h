@@ -105,6 +105,8 @@ struct tls_socket_t {
  * @param is_server			TRUE to act as TLS server
  * @param server			server identity
  * @param peer				client identity, NULL for no client authentication
+ * @param local_auth		config with certificates to use for our own
+ *							authentication, or NULL (see tls_create())
  * @param fd				socket to read/write from
  * @param cache				session cache to use, or NULL
  * @param min_version		minimum TLS version to negotiate or TLS_UNSPEC
@@ -113,8 +115,9 @@ struct tls_socket_t {
  * @return					TLS socket wrapper
  */
 tls_socket_t *tls_socket_create(bool is_server, identification_t *server,
-								identification_t *peer, int fd,
-								tls_cache_t *cache, tls_version_t min_version,
+								identification_t *peer, auth_cfg_t *local_auth,
+								int fd, tls_cache_t *cache,
+								tls_version_t min_version,
 								tls_version_t max_version, tls_flag_t flags);
 
 #endif /** TLS_SOCKET_H_ @}*/

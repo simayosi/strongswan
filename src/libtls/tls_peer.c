@@ -86,6 +86,11 @@ struct private_tls_peer_t {
 	identification_t *server;
 
 	/**
+	 * Local X.509 certificates to prefer, NULL if none (not owned)
+	 */
+	auth_cfg_t *local_auth;
+
+	/**
 	 * State we are in
 	 */
 	peer_state_t state;
@@ -1497,12 +1502,18 @@ static status_t send_certificate(private_tls_peer_t *this,
 			convert_cert_types(this);
 		}
 		enumerator = tls_create_private_key_enumerator(version_min, version_max,
-													   this->hashsig, this->peer);
+													   this->hashsig, this->peer,
+													   this->local_auth);
 		if (!enumerator || !enumerator->enumerate(enumerator, &key, &auth))
 		{
 			if (!enumerator)
 			{
 				DBG1(DBG_TLS, "no common signature algorithms found");
+			}
+			else if (this->local_auth)
+			{
+				DBG1(DBG_TLS, "no usable TLS client certificate found among "
+					 "the configured certificates or for '%Y'", this->peer);
 			}
 			else
 			{
@@ -1987,7 +1998,8 @@ METHOD(tls_handshake_t, destroy, void,
  * See header
  */
 tls_peer_t *tls_peer_create(tls_t *tls, tls_crypto_t *crypto, tls_alert_t *alert,
-							identification_t *peer, identification_t *server)
+							identification_t *peer, identification_t *server,
+							auth_cfg_t *local_auth)
 {
 	private_tls_peer_t *this;
 
@@ -2011,6 +2023,7 @@ tls_peer_t *tls_peer_create(tls_t *tls, tls_crypto_t *crypto, tls_alert_t *alert
 		.alert = alert,
 		.peer = peer ? peer->clone(peer) : NULL,
 		.server = server->clone(server),
+		.local_auth = local_auth,
 		.peer_auth = auth_cfg_create(),
 		.server_auth = auth_cfg_create(),
 	);

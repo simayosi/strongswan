@@ -711,16 +711,23 @@ key_type_t tls_signature_scheme_to_key_type(tls_signature_scheme_t sig);
 /**
  * Find a private key to encrypt/verify key exchange data
  *
+ * If certificates are given, one with a private key of the key type that is
+ * currently tried is preferred, otherwise, a certificate is looked up via the
+ * identity.
+ *
  * @param min_version	minimum negotiated TLS version
  * @param max_version	maximum negotiated TLS version
  * @param hashsig		hash and signature algorithms supported by other peer
  * @param peer			this peer identification
+ * @param certs			X.509 certificates (AUTH_RULE_SUBJECT_CERT) to
+ *						prefer, NULL if none, not modified
  * @return				enumerator over private keys,
  * 						NULL in case no common signature scheme
  */
 enumerator_t *tls_create_private_key_enumerator(tls_version_t min_version,
 												tls_version_t max_version,
 												chunk_t hashsig,
-												identification_t *peer);
+												identification_t *peer,
+												auth_cfg_t *certs);
 
 #endif /** TLS_CRYPTO_H_ @}*/

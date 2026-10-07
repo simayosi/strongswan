@@ -171,7 +171,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *buf, size_t len)
 	peer_id = identification_create_from_string("peer.test");
 	app = create_tls_application();
 
-	tls = tls_create(is_server, server_id, peer_id, TLS_PURPOSE_GENERIC,
+	tls = tls_create(is_server, server_id, peer_id, NULL, TLS_PURPOSE_GENERIC,
 					 app, NULL, TLS_FLAG_ENCRYPTION_OPTIONAL);
 	tls->set_version(tls, TLS_SUPPORTED_MIN, TLS_SUPPORTED_MAX);
 

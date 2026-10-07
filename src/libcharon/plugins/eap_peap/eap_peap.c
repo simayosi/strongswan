@@ -218,7 +218,7 @@ static eap_peap_t *eap_peap_create(private_eap_peap_t *this,
 					lib->ns);
 	include_length = lib->settings->get_bool(lib->settings,
 					"%s.plugins.eap-peap.include_length", FALSE, lib->ns);
-	tls = tls_create(is_server, server, peer, TLS_PURPOSE_EAP_PEAP,
+	tls = tls_create(is_server, server, peer, NULL, TLS_PURPOSE_EAP_PEAP,
 					 application, NULL, 0);
 	this->tls_eap = tls_eap_create(EAP_PEAP, tls, frag_size, max_msg_count,
 												  include_length);

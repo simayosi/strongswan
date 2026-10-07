@@ -237,6 +237,11 @@ struct private_tls_t {
 	tls_handshake_t *handshake;
 
 	/**
+	 * Local X.509 certificates to prefer, NULL if none
+	 */
+	auth_cfg_t *local_auth;
+
+	/**
 	 * TLS application data handler
 	 */
 	tls_application_t *application;
@@ -590,6 +595,7 @@ METHOD(tls_t, destroy, void,
 	this->fragmentation->destroy(this->fragmentation);
 	this->crypto->destroy(this->crypto);
 	this->handshake->destroy(this->handshake);
+	DESTROY_IF(this->local_auth);
 	DESTROY_IF(this->application);
 	this->alert->destroy(this->alert);
 
@@ -600,12 +606,43 @@ METHOD(tls_t, destroy, void,
 }
 
 /**
+ * Copy the X.509 subject certificates from the given config, NULL if none
+ */
+static auth_cfg_t *get_local_certs(auth_cfg_t *local_auth)
+{
+	enumerator_t *enumerator;
+	auth_cfg_t *certs = NULL;
+	certificate_t *cert;
+	auth_rule_t rule;
+
+	if (!local_auth)
+	{
+		return NULL;
+	}
+	enumerator = local_auth->create_enumerator(local_auth);
+	while (enumerator->enumerate(enumerator, &rule, &cert))
+	{
+		if (rule == AUTH_RULE_SUBJECT_CERT &&
+			cert->get_type(cert) == CERT_X509)
+		{
+			if (!certs)
+			{
+				certs = auth_cfg_create();
+			}
+			certs->add(certs, AUTH_RULE_SUBJECT_CERT, cert->get_ref(cert));
+		}
+	}
+	enumerator->destroy(enumerator);
+	return certs;
+}
+
+/**
  * See header
  */
 tls_t *tls_create(bool is_server, identification_t *server,
-				  identification_t *peer, tls_purpose_t purpose,
-				  tls_application_t *application, tls_cache_t *cache,
-				  tls_flag_t flags)
+				  identification_t *peer, auth_cfg_t *local_auth,
+				  tls_purpose_t purpose, tls_application_t *application,
+				  tls_cache_t *cache, tls_flag_t flags)
 {
 	private_tls_t *this;
 
@@ -638,6 +675,7 @@ tls_t *tls_create(bool is_server, identification_t *server,
 			.destroy = _destroy,
 		},
 		.is_server = is_server,
+		.local_auth = get_local_certs(local_auth),
 		.application = application,
 		.purpose = purpose,
 		.flags = flags,
@@ -649,12 +687,14 @@ tls_t *tls_create(bool is_server, identification_t *server,
 	if (is_server)
 	{
 		this->handshake = &tls_server_create(&this->public, this->crypto,
-										this->alert, server, peer)->handshake;
+										this->alert, server, peer,
+										this->local_auth)->handshake;
 	}
 	else
 	{
 		this->handshake = &tls_peer_create(&this->public, this->crypto,
-										this->alert, peer, server)->handshake;
+										this->alert, peer, server,
+										this->local_auth)->handshake;
 	}
 	this->fragmentation = tls_fragmentation_create(this->handshake, this->alert,
 												   this->application, purpose);

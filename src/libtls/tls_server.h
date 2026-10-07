@@ -53,9 +53,12 @@ struct tls_server_t {
  * @param alert		TLS alert handler
  * @param server	server identity
  * @param peer		peer identity, or NULL
+ * @param local_auth	X.509 server certificates to prefer, NULL if none
+ *					(not adopted, must remain valid)
  */
 tls_server_t *tls_server_create(tls_t *tls,
 						tls_crypto_t *crypto, tls_alert_t *alert,
-						identification_t *server, identification_t *peer);
+						identification_t *server, identification_t *peer,
+						auth_cfg_t *local_auth);
 
 #endif /** TLS_SERVER_H_ @}*/

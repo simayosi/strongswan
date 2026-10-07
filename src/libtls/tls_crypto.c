@@ -2781,6 +2781,7 @@ typedef struct {
 	enumerator_t public;
 	array_t *key_types;
 	identification_t *peer;
+	auth_cfg_t *certs;
 	private_key_t *key;
 	auth_cfg_t *auth;
 } private_key_enumerator_t;
@@ -2797,7 +2798,9 @@ METHOD(enumerator_t, private_key_enumerate, bool,
 	DESTROY_IF(this->key);
 	this->key = NULL;
 	DESTROY_IF(this->auth);
-	this->auth = auth_cfg_create();
+	/* use a copy as the config gets modified if a key is found */
+	this->auth = this->certs ? this->certs->clone(this->certs)
+							 : auth_cfg_create();
 
 	while (array_remove(this->key_types, ARRAY_HEAD, &type))
 	{
@@ -2831,7 +2834,8 @@ METHOD(enumerator_t, private_key_destroy, void,
 enumerator_t *tls_create_private_key_enumerator(tls_version_t min_version,
 												tls_version_t max_version,
 												chunk_t hashsig,
-												identification_t *peer)
+												identification_t *peer,
+												auth_cfg_t *certs)
 {
 	private_key_enumerator_t *enumerator;
 	enumerator_t *key_types;
@@ -2846,6 +2850,7 @@ enumerator_t *tls_create_private_key_enumerator(tls_version_t min_version,
 		},
 		.key_types = create_common_key_types(key_types, hashsig),
 		.peer = peer,
+		.certs = certs,
 	);
 	key_types->destroy(key_types);
 

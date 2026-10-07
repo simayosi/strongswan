@@ -52,8 +52,11 @@ struct tls_peer_t {
  * @param alert		TLS alert handler
  * @param peer		peer identity, NULL to skip client authentication
  * @param server	server identity
+ * @param local_auth	X.509 client certificates to prefer, NULL if none
+ *					(not adopted, must remain valid)
  */
 tls_peer_t *tls_peer_create(tls_t *tls, tls_crypto_t *crypto, tls_alert_t *alert,
-							identification_t *peer, identification_t *server);
+							identification_t *peer, identification_t *server,
+							auth_cfg_t *local_auth);
 
 #endif /** TLS_PEER_H_ @}*/

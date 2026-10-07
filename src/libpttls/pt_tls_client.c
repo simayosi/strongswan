@@ -85,7 +85,7 @@ static bool make_connection(private_pt_tls_client_t *this)
 		return FALSE;
 	}
 
-	this->tls = tls_socket_create(FALSE, this->server, this->client, fd,
+	this->tls = tls_socket_create(FALSE, this->server, this->client, NULL, fd,
 								  NULL, TLS_UNSPEC, TLS_UNSPEC, 0);
 	if (!this->tls)
 	{

@@ -132,8 +132,8 @@ static int run_client(host_t *host, identification_t *server,
 			close(fd);
 			return 1;
 		}
-		tls = tls_socket_create(FALSE, server, client, fd, cache, min_version,
-							    max_version, flags);
+		tls = tls_socket_create(FALSE, server, client, NULL, fd, cache,
+								min_version, max_version, flags);
 		if (!tls)
 		{
 			close(fd);
@@ -191,8 +191,8 @@ static int serve(host_t *host, identification_t *server, identification_t *clien
 		}
 		DBG1(DBG_TLS, "%#H connected", host);
 
-		tls = tls_socket_create(TRUE, server, client, cfd, cache, min_version,
-								max_version, flags);
+		tls = tls_socket_create(TRUE, server, client, NULL, cfd, cache,
+								min_version, max_version, flags);
 		if (!tls)
 		{
 			close(fd);

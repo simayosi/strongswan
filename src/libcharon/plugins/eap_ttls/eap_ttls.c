@@ -209,7 +209,7 @@ static eap_ttls_t *eap_ttls_create(identification_t *server,
 					lib->ns);
 	include_length = lib->settings->get_bool(lib->settings,
 					"%s.plugins.eap-ttls.include_length", TRUE, lib->ns);
-	tls = tls_create(is_server, server, peer, TLS_PURPOSE_EAP_TTLS,
+	tls = tls_create(is_server, server, peer, NULL, TLS_PURPOSE_EAP_TTLS,
 					 application, NULL, 0);
 	this->tls_eap = tls_eap_create(EAP_TTLS, tls, frag_size, max_msg_count,
 												  include_length);
