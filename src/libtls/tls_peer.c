@@ -1478,6 +1478,34 @@ static void convert_cert_types(private_tls_peer_t *this)
 }
 
 /**
+ * Get a copy of the configured certificates with the CAs requested by the
+ * server added, NULL if no certificates are configured
+ */
+static auth_cfg_t *add_ca_hints(private_tls_peer_t *this)
+{
+	enumerator_t *enumerator;
+	certificate_t *cert;
+	auth_rule_t rule;
+	auth_cfg_t *certs;
+
+	if (!this->local_auth)
+	{
+		return NULL;
+	}
+	certs = this->local_auth->clone(this->local_auth);
+	enumerator = this->peer_auth->create_enumerator(this->peer_auth);
+	while (enumerator->enumerate(enumerator, &rule, &cert))
+	{
+		if (rule == AUTH_RULE_CA_CERT)
+		{
+			certs->add(certs, AUTH_RULE_CA_CERT, cert->get_ref(cert));
+		}
+	}
+	enumerator->destroy(enumerator);
+	return certs;
+}
+
+/**
  * Send Certificate
  */
 static status_t send_certificate(private_tls_peer_t *this,
@@ -1488,7 +1516,7 @@ static status_t send_certificate(private_tls_peer_t *this,
 	auth_rule_t rule;
 	bio_writer_t *certs;
 	private_key_t *key;
-	auth_cfg_t *auth;
+	auth_cfg_t *auth, *local_certs;
 	chunk_t data;
 	tls_version_t version_min, version_max;
 
@@ -1501,9 +1529,11 @@ static status_t send_certificate(private_tls_peer_t *this,
 		{
 			convert_cert_types(this);
 		}
+		/* prefer certificates issued by the CAs requested by the server */
+		local_certs = add_ca_hints(this);
 		enumerator = tls_create_private_key_enumerator(version_min, version_max,
 													   this->hashsig, this->peer,
-													   this->local_auth);
+													   local_certs);
 		if (!enumerator || !enumerator->enumerate(enumerator, &key, &auth))
 		{
 			if (!enumerator)
@@ -1529,6 +1559,7 @@ static status_t send_certificate(private_tls_peer_t *this,
 			this->peer_auth->merge(this->peer_auth, auth, FALSE);
 		}
 		DESTROY_IF(enumerator);
+		DESTROY_IF(local_certs);
 	}
 
 	/* certificate request context as described in RFC 8446, section 4.4.2 */

@@ -713,14 +713,17 @@ key_type_t tls_signature_scheme_to_key_type(tls_signature_scheme_t sig);
  *
  * If certificates are given, one with a private key of the key type that is
  * currently tried is preferred, otherwise, a certificate is looked up via the
- * identity.
+ * identity. If CA certificates are given too, a certificate of that key type
+ * that chains to one of them is preferred.
  *
  * @param min_version	minimum negotiated TLS version
  * @param max_version	maximum negotiated TLS version
  * @param hashsig		hash and signature algorithms supported by other peer
  * @param peer			this peer identification
  * @param certs			X.509 certificates (AUTH_RULE_SUBJECT_CERT) to
- *						prefer, NULL if none, not modified
+ *						prefer and optionally CA certificates
+ *						(AUTH_RULE_CA_CERT) to prefer certificates issued by,
+ *						NULL if none, not modified
  * @return				enumerator over private keys,
  * 						NULL in case no common signature scheme
  */

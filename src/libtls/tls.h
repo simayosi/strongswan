@@ -381,8 +381,12 @@ void libtls_init(void);
  *							looked up via our identity. If NULL or if there
  *							are no such certificates, certificates are only
  *							looked up via our identity. As client, the
- *							certificates are not used if peer is NULL. The
- *							config is not modified and not adopted.
+ *							certificates are not used if peer is NULL, and
+ *							for each key type, one that is issued by a CA
+ *							requested by the server is preferred (only
+ *							requested CAs that are locally trusted are
+ *							considered). The config is not modified and not
+ *							adopted.
  * @param purpose			purpose this TLS stack instance is used for
  * @param application		higher layer application or NULL if none
  * @param cache				session cache to use, or NULL
